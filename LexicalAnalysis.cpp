@@ -6,13 +6,14 @@
 #include <string>
 #include <algorithm>
 #include <stdexcept>
+#include <QMap>
 
 using namespace std;
 using mapSets = map<string, set<string>>;
 
 // Constants and global data structures
 const vector<string> NONTERMINALS = {"A", "B", "B'", "T", "T'", "M"};
-const vector<string> TERMINALS = {"(", "a", "b", "c", "d", "x", "y", "*", "/", "+", "-", ")", "!"};
+const vector<string> TERMINALS = {"(", "a", "b", "c", "d", "x", "y", "*", "/", "+", "-", ")", "!", "#"};
 
 const map<string, vector<vector<string>>> PRODUCTIONS = {
     {"A", {{"!", "B", "!"}}},
@@ -72,8 +73,8 @@ pair<mapSets, mapSets> build_sets() {
     return {L, R};
 }
 
-map<string, map<string, string>> build_precedence_matrix(const mapSets& L, const mapSets& R) {
-    map<string, map<string, string>> matrix;
+QMap<string, QMap<string, string>> build_precedence_matrix(const mapSets& L, const mapSets& R) {
+    QMap<string, QMap<string, string>> matrix;
 
     for (const string& t : TERMINALS) {
         matrix[t];
@@ -84,7 +85,7 @@ map<string, map<string, string>> build_precedence_matrix(const mapSets& L, const
         for (const auto& body : head_pair.second) {
             for (size_t i = 0; i < body.size() - 1; ++i) {
                 string a = body[i], b = body[i + 1];
-                if (contains(TERMINALS, a) && contains(TERMINALS, b)) {
+                if ((contains(NONTERMINALS, a) && contains(TERMINALS, b)) || (contains(TERMINALS, a) && contains(NONTERMINALS, b))) {
                     matrix[a][b] = "=";
                 }
                 if (i + 2 < body.size() && contains(TERMINALS, body[i]) &&
@@ -105,7 +106,6 @@ map<string, map<string, string>> build_precedence_matrix(const mapSets& L, const
         }
     }
 
-    // NOTE: Вручную устанавливаем приоретет между операциями + - и * /
     vector<vector<string>> groups = {{"+", "-"}, {"*", "/"}};
     for (const auto& group : groups) {
         for (const string& a : group) {
@@ -122,20 +122,180 @@ map<string, map<string, string>> build_precedence_matrix(const mapSets& L, const
         }
     }
 
+    matrix["#"]["("] = "<";
+    matrix[")"]["#"] = ">";
+    matrix["#"]["!"] = "=";
+    matrix["!"]["#"] = "=";
+
     return matrix;
+}
+
+auto [L, R] = build_sets();
+auto matrix = build_precedence_matrix(L, R);
+
+// Транслятор
+
+bool is_terminal(const string& s) {
+    return contains(TERMINALS, s) || s == "#";
+}
+
+// Получить последний терминал в стеке (справа-налево)
+string get_last_terminal(const vector<string>& stack) {
+    for (int i = (int)stack.size() - 1; i >= 0; --i) {
+        // if (is_terminal(stack[i])) {
+            return stack[i];
+        // }
+    }
+    throw runtime_error("No terminal symbol found in stack");
+}
+
+// Попытка свёртки (редукции) стека согласно PRODUCTIONS
+bool try_reduce(vector<string>& stack) {
+    // Соберём все возможные свёртки с длинами
+    vector<tuple<int, string, vector<string>>> candidates;
+    for (const auto& [head, bodies] : PRODUCTIONS) {
+        for (const auto& body : bodies) {
+            int n = (int)body.size();
+            if ((int)stack.size() >= n) {
+                bool match = true;
+                for (int i = 0; i < n; ++i) {
+                    if (stack[stack.size() - n + i] != body[i]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    candidates.emplace_back(n, head, body);
+                }
+            }
+        }
+    }
+
+    // Отсортируем кандидатов: сначала более длинные свёртки
+    std::sort(candidates.begin(), candidates.end(),
+              [](const auto& a, const auto& b) {
+                  return std::get<0>(a) > std::get<0>(b); // по убыванию длины
+              });
+
+    // Применим первую подходящую свёртку
+    if (!candidates.empty()) {
+        auto [n, head, body] = candidates.front();
+
+        cout << "Reduce: ";
+        for (int i = stack.size() - n; i < (int)stack.size(); ++i)
+            cout << stack[i] << " ";
+        cout << "-> " << head << endl;
+
+        stack.erase(stack.end() - n, stack.end());
+        stack.push_back(head);
+
+        // Обработка ПОЛИЗ
+        if (head == "B'") {
+            if (n == 3 && (body[1] == "+" || body[1] == "-")) {
+                poliz.push_back(body[1]);
+                cout << "POLIZ push operator: " << body[1] << endl;
+            }
+        } else if (head == "T'") {
+            if (n == 3 && (body[1] == "*" || body[1] == "/")) {
+                poliz.push_back(body[1]);
+                cout << "POLIZ push operator: " << body[1] << endl;
+            }
+        } else if (head == "M") {
+            if (n == 1 && is_terminal(body[0]) && body[0] != "(" && body[0] != ")") {
+                poliz.push_back(body[0]);
+                cout << "POLIZ push operand: " << body[0] << endl;
+            }
+        }
+
+        cout << "Stack after reduce: ";
+        for (const auto& s : stack) cout << s << " ";
+        cout << endl;
+
+        return true;
+    }
+
+    return false;
+}
+
+bool translate(const vector<string>& input, const QMap<string, QMap<string, string>>& matrix) {
+    vector<string> stack = {"#"};
+    int pos = 0;
+    poliz.clear();
+
+    cout << "Starting translation..." << endl;
+
+    while (true) {
+        string a = get_last_terminal(stack);
+        string b = (pos < (int)input.size()) ? input[pos] : "#";
+
+        string relation;
+        if (matrix.count(a) && matrix.value(a).count(b)) {
+            relation = matrix.value(a).value(b);
+        } else {
+            relation = "";
+        }
+
+        cout << "Stack: ";
+        for (const auto& s : stack) cout << s << " ";
+        cout << " | Next input symbol: " << b << endl;
+        cout << "Relation between '" << a << "' and '" << b << "': " << (relation.empty() ? "(none)" : relation) << endl;
+
+        if (a == "#" && b == "#") {
+            cout << "Special case: both a and b are '#'. Trying to reduce stack..." << endl;
+
+            // Проверим стек на структуру: # ! B ! #
+            if (stack.size() == 5 &&
+                stack[0] == "#" &&
+                stack[1] == "!" &&
+                stack[2] == "B" &&
+                stack[3] == "!" &&
+                stack[4] == "#")
+            {
+                // Чистим стек и кладём # и A
+                stack.clear();
+                stack.push_back("#");
+                stack.push_back("A");
+
+                cout << "Parsing completed successfully." << endl;
+                return true;
+            } else {
+                cout << "Parsing failed: unexpected stack content in '#' '#' case." << endl;
+                return false;
+            }
+        }
+
+        if (relation == "<" || relation == "=") {
+            cout << "Action: Shift '" << b << "'" << endl;
+            stack.push_back(b);
+            pos++;
+        } else if (relation == ">") {
+            cout << "Action: Reduce" << endl;
+            if (!try_reduce(stack)) {
+                cerr << "Error: reduction failed." << endl;
+                return false;
+            }
+        } else {
+            cerr << "Error: invalid precedence relation between '" << a << "' and '" << b << "'" << endl;
+            return false;
+        }
+
+        if (stack.size() == 2 && stack[0] == "#" && stack[1] == "A" && b == "#") {
+            cout << "Parsing completed successfully." << endl;
+            return true;
+        }
+    }
 }
 
 int main() {
     try {
-        auto [L, R] = build_sets();
-        auto matrix = build_precedence_matrix(L, R);
+
 
         std::cout << "Precedence Matrix:" << std::endl;
 
         // Шапка таблицы
         std::cout << "    ";
-        for (const std::string& t : TERMINALS) {
-            std::cout << std::setw(3) << t;
+        for (const auto key : matrix.keys()) {
+            std::cout << std::setw(3) << key;
         }
         std::cout << std::endl;
 
@@ -147,17 +307,30 @@ int main() {
         std::cout << std::endl;
 
         // Содержимое матрицы
-        for (const std::string& row : TERMINALS) {
-            std::cout << std::setw(3) << row << "|"; // Нетерминал в начале строки
+        for (const auto key : matrix.keys()) {
+            std::cout << std::setw(3) << key << "|";
             for (const std::string& col : TERMINALS) {
-                std::string val = matrix[row][col];
+                std::string val = matrix[key][col];
                 if (!val.empty()) {
-                    std::cout << std::setw(3) << val; // Например: "<", "=", ">"
+                    std::cout << std::setw(3) << val;
                 } else {
-                    std::cout << "   "; // пустая ячейка
+                    std::cout << "   ";
                 }
             }
             std::cout << std::endl;
+        }
+
+        // Пример входа, завершаем "#" — обязательно
+        vector<string> input = {"!", "(", "a", "+", "b", ")", "*", "c", "!"};
+        std::cout << "\nStarting translation..." << std::endl;
+        if (translate(input, matrix)) {
+            std::cout << "Parsing succeeded.\nPOLIZ: ";
+            for (const auto& tok : poliz) {
+                std::cout << tok << " ";
+            }
+            std::cout << std::endl;
+        } else {
+            std::cout << "Parsing failed." << std::endl;
         }
 
     } catch (const exception& e) {
