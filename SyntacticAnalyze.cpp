@@ -4,7 +4,7 @@
 
 int main()
 {
-    Grammar g = {
+    Grammar grammar = {
         { "A", { "!", "B", "!" }, 1, "" },
         { "B", { "T", "+", "B" }, 3, "+" },
         { "B", { "T" }, 2, "" },
@@ -15,17 +15,17 @@ int main()
         { "M", { "(", "B", ")" }, 8, "" }
     };
 
-    std::unordered_set<std::string> terminals = { "!", "+", "*", "(", ")", "a", "b" };
+    std::unordered_set<std::string> TERMINALS = { "!", "+", "*", "(", ")", "a", "b" };
 
-    std::vector<std::string> test_cases = { "!a+b!",         "!a*b!",
+    std::vector<std::string> testСases = { "!a+b!",         "!a*b!",
                                             "!(a+b)*(b+a)!", "!b*a+a*b!",
                                             "!(a+b)*a+b*a!", "!(a+b*a)*(b*b+a*(a+b+a))!",
                                             "!a+*b!",        "a+b*a+b",
                                             "a!b",           "!a(b+a()!" };
 
-    for (const auto &input : test_cases) {
+    for (const auto &input : testСases) {
         std::cout << "Parse string: " << input << std::endl;
-        Parser parser(input, g, terminals, "A");
+        Parser parser(input, grammar, TERMINALS, "A");
         if (parser.parse()) {
             std::cout << "Derivation: ";
             for (int id : parser.getDerivation()) {
@@ -33,7 +33,7 @@ int main()
             }
             std::cout << std::endl;
 
-            std::cout << "RPN (POLIZ): ";
+            std::cout << "RPN: ";
             for (const auto &tok : parser.getRPN()) std::cout << tok << " ";
             std::cout << std::endl;
         } else {
