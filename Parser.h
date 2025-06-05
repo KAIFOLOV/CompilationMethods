@@ -11,6 +11,7 @@ struct Rule
     std::string left;
     std::vector<std::string> right;
     int id;
+    std::string operation;
 };
 
 using Grammar = std::vector<Rule>;
@@ -26,11 +27,13 @@ public:
 
     bool parse();
     std::vector<int> getDerivation() const;
+    std::vector<std::string> getRPN() const;
 
 private:
     std::string _input;
     int _position;
     std::vector<int> _derivation;
+    std::vector<std::string> _rpn;
 
     Grammar _grammar;
     RulesByNonterminal _rulesByLHS;
