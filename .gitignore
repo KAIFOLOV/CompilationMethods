@@ -1,0 +1,17 @@
+#Ignore files Qt Creator
+*.user
+*.user.*
+**.autosave
+
+#Ignore files doxygen
+doxygen/
+*.pdf
+
+#Ignore other files
+**.bak
+
+#Ignore conan file
+conan/conanfile.txt
+*.TMP
+
+build/*
