@@ -18,13 +18,20 @@ const vector<string> NONTERMINALS = { "A", "B", "B'", "T", "T'", "M" };
 const vector<string> TERMINALS = { "(", "a", "b", "c", "d", "x", "y",
                                    "*", "/", "+", "-", ")", "!", "#" };
 
-const map<string, vector<vector<string>>> PRODUCTIONS = {
-    { "A", { { "!", "B", "!" } } },
-    { "B", { { "B'" } } },
-    { "B'", { { "T" }, { "B'", "+", "T" }, { "B'", "-", "T" } } },
-    { "T", { { "T'" } } },
-    { "T'", { { "M" }, { "T'", "*", "M" }, { "T'", "/", "M" } } },
-    { "M", { { "a" }, { "b" }, { "c" }, { "d" }, { "x" }, { "y" }, { "(", "B", ")" } } }
+const map<string, map<int, vector<string>>> PRODUCTIONS = {
+    { "A", { { 1, { "!", "B", "!" } } } },
+    { "B", { { 2, { "B'" } } } },
+    { "B'", { { 3, { "T" } }, { 4, { "B'", "+", "T" } }, { 5, { "B'", "-", "T" } } } },
+    { "T", { { 6, { "T'" } } } },
+    { "T'", { { 7, { "M" } }, { 8, { "T'", "*", "M" } }, { 9, { "T'", "/", "M" } } } },
+    { "M",
+      { { 10, { "a" } },
+        { 11, { "b" } },
+        { 12, { "c" } },
+        { 13, { "d" } },
+        { 14, { "x" } },
+        { 15, { "y" } },
+        { 16, { "(", "B", ")" } } } }
 };
 
 bool contains(const vector<string> &vec, const string &val)
@@ -36,8 +43,12 @@ pair<mapSets, mapSets> buildSets()
 {
     mapSets L, R;
     for (const auto &head_pair : PRODUCTIONS) {
-        string head = head_pair.first;
-        for (const auto &body : head_pair.second) {
+        const string &head = head_pair.first;
+        const auto &rules = head_pair.second;
+
+        for (const auto &rule_pair : rules) {
+            const vector<string> &body = rule_pair.second;
+
             if (!body.empty()) {
                 L[head].insert(body.front());
                 R[head].insert(body.back());
@@ -84,24 +95,33 @@ QMap<string, QMap<string, string>> buildPrecedenceMatrix(const mapSets &L, const
         matrix[t];
     }
 
-    for (const auto &head_pair : PRODUCTIONS) {
-        string head = head_pair.first;
-        for (const auto &body : head_pair.second) {
-            for (size_t i = 0; i < body.size() - 1; ++i) {
-                string a = body[i], b = body[i + 1];
+    for (const auto &headPair : PRODUCTIONS) {
+        const string &head = headPair.first;
+        const auto &rules = headPair.second;
+
+        for (const auto &rule_pair : rules) {
+            const vector<string> &body = rule_pair.second;
+
+            for (size_t i = 0; i + 1 < body.size(); ++i) {
+                const string &a = body[i];
+                const string &b = body[i + 1];
+
                 if ((contains(NONTERMINALS, a) && contains(TERMINALS, b))
                     || (contains(TERMINALS, a) && contains(NONTERMINALS, b))) {
                     matrix[a][b] = "=";
                 }
+
                 if (i + 2 < body.size() && contains(TERMINALS, body[i])
                     && contains(NONTERMINALS, body[i + 1]) && contains(TERMINALS, body[i + 2])) {
                     matrix[body[i]][body[i + 2]] = "=";
                 }
+
                 if (contains(TERMINALS, a) && contains(NONTERMINALS, b)) {
                     for (const string &t : L.at(b)) {
                         matrix[a][t] = "<";
                     }
                 }
+
                 if (contains(NONTERMINALS, a) && contains(TERMINALS, b)) {
                     for (const string &t : R.at(a)) {
                         matrix[t][b] = ">";
@@ -150,25 +170,9 @@ string getLastTerminal(const vector<string> &stack)
 
 bool tryReduce(vector<string> &stack)
 {
-    map<string, map<vector<string>, int>> production_to_number = {
-        { "A", { { { "!", "B", "!" }, 1 } } },
-        { "B", { { { "B'" }, 2 } } },
-        { "B'", { { { "T" }, 3 }, { { "B'", "+", "T" }, 4 }, { { "B'", "-", "T" }, 5 } } },
-        { "T", { { { "T'" }, 6 } } },
-        { "T'", { { { "M" }, 7 }, { { "T'", "*", "M" }, 8 }, { { "T'", "/", "M" }, 9 } } },
-        { "M",
-          { { { "a" }, 10 },
-            { { "b" }, 11 },
-            { { "c" }, 12 },
-            { { "d" }, 13 },
-            { { "x" }, 14 },
-            { { "y" }, 15 },
-            { { "(", "B", ")" }, 16 } } }
-    };
-
     vector<tuple<int, string, vector<string>, int>> candidates;
-    for (const auto &[head, bodies] : PRODUCTIONS) {
-        for (const auto &body : bodies) {
+    for (const auto &[head, body_map] : PRODUCTIONS) {
+        for (const auto &[rule_number, body] : body_map) {
             int n = (int)body.size();
             if ((int)stack.size() >= n) {
                 bool match = true;
@@ -179,28 +183,26 @@ bool tryReduce(vector<string> &stack)
                     }
                 }
                 if (match) {
-                    int rule_number = production_to_number[head][body];
                     candidates.emplace_back(n, head, body, rule_number);
                 }
             }
         }
     }
-
     std::sort(candidates.begin(), candidates.end(), [](const auto &a, const auto &b) {
         return std::get<0>(a) > std::get<0>(b);
     });
 
     if (!candidates.empty()) {
-        auto [n, head, body, rule_number] = candidates.front();
+        auto [n, head, body, ruleNumber] = candidates.front();
 
         cout << "Reduce: ";
         for (int i = stack.size() - n; i < (int)stack.size(); ++i) cout << stack[i] << " ";
         cout << "-> " << head << endl;
-        cout << "Rule number: " << rule_number << endl;
+        cout << "Rule number: " << ruleNumber << endl;
 
         stack.erase(stack.end() - n, stack.end());
         stack.push_back(head);
-        PRODUCTION_NUMBERS.push_back(rule_number);
+        PRODUCTION_NUMBERS.push_back(ruleNumber);
 
         if (head == "B'") {
             if (n == 3 && (body[1] == "+" || body[1] == "-")) {
@@ -299,7 +301,6 @@ int main()
         std::cout << std::endl;
         std::cout << "--------------------------------------------" << std::endl;
 
-        // Содержимое матрицы
         for (const auto key : matrix.keys()) {
             std::cout << std::setw(3) << key << "|";
             for (const std::string &col : TERMINALS) {
@@ -313,7 +314,7 @@ int main()
             std::cout << std::endl;
         }
 
-        vector<string> input = { "!", "(", "a", "+", "b", ")", "*", "c", "!" };
+        vector<string> input = { "!", "(", "a", "+", "b", ")", "/", "c", "!" };
         std::cout << "\nStarting translation..." << std::endl;
         if (translate(input, matrix)) {
             std::cout << "\nProduction numbers: ";
